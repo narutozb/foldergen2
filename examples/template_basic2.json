@@ -1,0 +1,29 @@
+{
+  "dirs": [
+    {
+      "name": "{project_name}",
+      "dirs": [
+        {
+          "name": "docs"
+        },
+        {
+          "name": "src",
+          "dirs": [
+            {
+              "name": "assets"
+            },
+            {
+              "name": "modules"
+            }
+          ]
+        }
+      ],
+      "files": [
+        "README.md",
+        "LICENSE",
+        "{project_name|slug}.py",
+        "{episode|pad(3)}_intro.txt"
+      ]
+    }
+  ]
+}

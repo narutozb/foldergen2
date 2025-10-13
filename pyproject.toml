@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "foldergen"
+version = "0.1.0"
+description = "Template-driven folder structure preview, validate and creation engine (plugin-based)."
+
+requires-python = ">=3.9"
+license = { text = "MIT" }
+
+dependencies = [
+    'click'
+]
+
+[project.urls]
+#Homepage = "https://example.com/foldergen"
+
+[tool.setuptools.packages.find]
+where = ['src']
+include = ['*']
+
+
+
+[project.scripts]
+foldergen = "foldergen.cli.main:main"

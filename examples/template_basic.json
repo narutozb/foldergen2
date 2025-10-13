@@ -1,0 +1,22 @@
+{
+  "dirs": [
+    {
+      "name": "{project_name}",
+      "dirs": [
+        {
+          "name": "{project_name}__Release_{{date: start=2025-01-01; stop=2025-03-01; step=4m; fmt=%Y%m}}",
+          "dirs": [
+            {
+              "name": "Char_{{alpha: start=A; stop=B}}",
+              "dirs": [
+                {
+                  "name": "LOD_{{int: start=0; stop=2; pad=2}}"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
