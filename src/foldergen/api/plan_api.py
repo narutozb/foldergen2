@@ -13,17 +13,12 @@ def load_json(path: str | Path) -> Dict[str, Any]:
         return json.load(fr)
 
 
-def make_plan(
-        template_path: str | Path,
-        base_dir: str | Path,
-        vars_path: str | Path,
-) -> BuildPlan:
+def make_plan(template_path: str | Path, base_dir: str | Path, vars_path: str | Path, *, max_expand: int = 50_000) -> BuildPlan:
     template = load_json(template_path)
     context: Dict[str, Any] = load_json(vars_path)
-
     validate_template_dict(template)
     missing = find_missing_vars(template, context)
     if missing:
         raise KeyError(f"Missing variables in context: {sorted(missing)}")
+    return build_plan(template, str(base_dir), context, max_expand=max_expand)
 
-    return build_plan(template, str(base_dir), context)

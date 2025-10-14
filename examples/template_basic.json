@@ -4,16 +4,22 @@
       "name": "{project_name}",
       "dirs": [
         {
-          "name": "{project_name}__Release_{{date: start=2025-01-01; stop=2025-03-01; step=4m; fmt=%Y%m}}",
+          "name": "Release_{{date: start=2025-01-01; stop=2025-12-01; step=4m; fmt=%Y%m}}",
           "dirs": [
             {
-              "name": "Char_{{alpha: start=A; stop=B}}",
+              "name": "{sub_dir|slug}_{{alpha: start=A; stop=B}}_{{int: start=0; stop=2; pad=2}}",
               "dirs": [
                 {
                   "name": "LOD_{{int: start=0; stop=2; pad=2}}"
                 }
               ]
             }
+          ],
+          "files": [
+            "README.md",
+            "LICENSE",
+            "{project_name|slug}.py",
+            "{episode|pad(3)}_intro.txt"
           ]
         }
       ]

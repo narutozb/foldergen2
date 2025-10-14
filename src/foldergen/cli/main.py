@@ -5,8 +5,6 @@ import click
 from pathlib import Path
 from ..api import plan_api, generator_api
 from ..core.checker import audit_filesystem
-from ..core.models import BuildPlan
-from ..core.validator import find_duplicate_rendered_paths
 
 
 @click.group(help="Generate folder structures from template strings.")
@@ -18,19 +16,35 @@ def main():
 @click.option("--template", "template_path", required=True, type=click.Path(exists=True, dir_okay=False))
 @click.option("--vars", "vars_path", required=True, type=click.Path(exists=True, dir_okay=False))
 @click.option("--base", "base_dir", required=True, type=click.Path(file_okay=False))
-@click.option("--relative/--absolute", default=True, show_default=True, help="Manifest shows paths relative to --base (or absolute).")
-@click.option("--export-manifest", "export_manifest", type=click.Path(dir_okay=False), default=None, help="If given, write manifest to this file instead of stdout.")
-@click.option("--manifest-format", type=click.Choice(["json", "jsonl"]), default="json", show_default=True, help="Manifest file format.")
+@click.option("--relative/--absolute", default=True, show_default=True,
+              help="Manifest shows paths relative to --base (or absolute).")
+@click.option("--export-manifest", "export_manifest", type=click.Path(dir_okay=False), default=None,
+              help="If given, write manifest to this file instead of stdout.")
+@click.option("--manifest-format", type=click.Choice(["json", "jsonl"]), default="json", show_default=True,
+              help="Manifest file format.")
 # ---- 新增：状态注入选项（沿用 check 的参数）----
-@click.option("--with-status", is_flag=True, help="Include status (existing/missing/conflict/planned) and name issues in manifest.")
+@click.option("--with-status", is_flag=True,
+              help="Include status (existing/missing/conflict/planned) and name issues in manifest.")
+@click.option("--warn-unused-vars", is_flag=True, help="Warn if keys in --vars are not used by the template.")
+@click.option("--max-expand", type=int, default=50000, show_default=True,
+              help="Maximum allowed generator expansion per node.")
 @click.option("--portable",
-              type=click.Choice(["auto","windows","posix","mac","all","none"]),
+              type=click.Choice(["auto", "windows", "posix", "mac", "all", "none"]),
               default="auto", show_default=True)
 @click.option("--max-path-len", default=240, show_default=True, type=int)
 @click.option("--follow-symlinks/--no-follow-symlinks", default=False, show_default=True)
 def plan(template_path, vars_path, base_dir, relative, export_manifest, manifest_format,
-         with_status, portable, max_path_len, follow_symlinks):
-    p = plan_api.make_plan(template_path, base_dir, vars_path)
+         with_status, portable, max_path_len, follow_symlinks, warn_unused_vars, max_expand, ):
+    p = plan_api.make_plan(template_path, base_dir, vars_path, max_expand=max_expand)
+    # 未使用变量警告
+    if warn_unused_vars:
+        from ..api import plan_api as _pa
+        template = _pa.load_json(template_path)
+        ctx = _pa.load_json(vars_path)
+        from ..core.validator import find_unused_vars
+        unused = sorted(find_unused_vars(template, ctx))
+        if unused:
+            click.secho(f"Warning: unused vars: {unused}", fg="yellow")
 
     status_map = issues_map = None
     if with_status:
@@ -61,21 +75,36 @@ def plan(template_path, vars_path, base_dir, relative, export_manifest, manifest
         click.echo(json.dumps(manifest, ensure_ascii=False, indent=2))
 
 
-
 @main.command(help="Simulate generation (print operations, no writes).")
 @click.option("--template", "template_path", required=True, type=click.Path(exists=True, dir_okay=False))
 @click.option("--vars", "vars_path", required=True, type=click.Path(exists=True, dir_okay=False))
 @click.option("--base", "base_dir", required=True, type=click.Path(file_okay=False))
-def simulate(template_path, vars_path, base_dir):
-    generator_api.simulate(template_path, base_dir, vars_path)
+@click.option("--quiet", is_flag=True, help="Only print final summary.")
+@click.option("--summary", is_flag=True, help="Print summary after listing.")
+@click.option("--max-expand", type=int, default=50000, show_default=True)
+def simulate(template_path, vars_path, base_dir, quiet, summary, max_expand):
+    plan = plan_api.make_plan(template_path, base_dir, vars_path, max_expand=max_expand)
+    dirs = [i.path for i in plan.items if i.type == "dir"]
+    files = [i.path for i in plan.items if i.type == "file"]
+    if not quiet:
+        for d in dirs: click.echo(f"[dir ] {d}")
+        for f in files: click.echo(f"[file] {f}")
+    if summary or quiet:
+        click.secho(f"Summary: dirs={len(dirs)}, files={len(files)}", fg="cyan")
 
 
 @main.command(help="Apply plan and write to filesystem.")
 @click.option("--template", "template_path", required=True, type=click.Path(exists=True, dir_okay=False))
 @click.option("--vars", "vars_path", required=True, type=click.Path(exists=True, dir_okay=False))
 @click.option("--base", "base_dir", required=True, type=click.Path(file_okay=False))
-def build(template_path, vars_path, base_dir):
-    generator_api.build(template_path, base_dir, vars_path)
+@click.option("--assume-yes", is_flag=True, help="Do not ask for confirmation.")
+@click.option("--max-expand", type=int, default=50000, show_default=True)
+def build(template_path, vars_path, base_dir, assume_yes, max_expand):
+    plan = plan_api.make_plan(template_path, base_dir, vars_path, max_expand=max_expand)
+    if not assume_yes:
+        total = len(plan.items)
+        click.confirm(f"This will create {total} entries. Continue?", abort=True)
+    generator_api.build(template_path, vars_path, base_dir)  # 内部再生成一次也行；如想避免重复可直接 apply_plan(plan)
 
 
 @main.command(help="Check filesystem against template plan and report issues.")
@@ -90,10 +119,9 @@ def build(template_path, vars_path, base_dir):
               help="Name portability rules to apply.")
 @click.option("--format", "fmt", type=click.Choice(["json", "table"]), default="json", show_default=True)
 @click.option("--strict", is_flag=True, help="Non-zero exit if any issue found (good for CI).")
-def check(template_path, vars_path, base_dir, follow_symlinks, max_path_len, portable, fmt, strict):
+@click.option("--filter", "filter_status", default=None, help="Filter statuses in output: e.g. 'missing,conflict'.")
+def check(template_path, vars_path, base_dir, follow_symlinks, max_path_len, portable, fmt, strict, filter_status):
     plan = plan_api.make_plan(template_path, base_dir, vars_path)
-    dup = find_duplicate_rendered_paths(plan)
-
     rep = audit_filesystem(
         plan,
         base_dir,
@@ -101,7 +129,10 @@ def check(template_path, vars_path, base_dir, follow_symlinks, max_path_len, por
         max_path_len=max_path_len,
         portable=portable,  # ⬅ 传入
     )
-    rep.duplicate_planned_paths = dup or rep.duplicate_planned_paths
+
+    # 状态过滤（仅影响 table/json 输出，不改变 rep 内部）
+    if filter_status:
+        want = {s.strip().lower() for s in filter_status.split(",") if s.strip()}
 
     if fmt == "json":
         def _ser(obj):
@@ -184,17 +215,21 @@ def _print_tree_ascii(tree: dict, *, max_depth: int | None = None, _prefix: str 
 @click.option("--base", "base_dir", required=True, type=click.Path(file_okay=False))
 @click.option("--relative/--absolute", default=True, show_default=True, help="Show paths relative to --base.")
 @click.option("--depth", type=int, default=None, help="Max depth to print (tree mode).")
-@click.option("--show-files/--no-show-files", default=True, show_default=True, help="Whether to include files in the tree object.")
-@click.option("--sort", type=click.Choice(["template", "alpha"]), default="template", show_default=True, help="Sort children by template order or alphabetically.")
-@click.option("--format", "fmt", type=click.Choice(["tree", "json", "yaml"]), default="tree", show_default=True, help="Output format.")
-@click.option("--out", "out_path", type=click.Path(dir_okay=False), default=None, help="If set, write to file instead of stdout.")
-# ---- 新增：状态注入及其规则（与 check 一致） ----
+@click.option("--show-files/--no-show-files", default=True, show_default=True,
+              help="Whether to include files in the tree object.")
+@click.option("--sort", type=click.Choice(["template", "alpha"]), default="template", show_default=True,
+              help="Sort children by template order or alphabetically.")
+@click.option("--format", "fmt", type=click.Choice(["tree", "json", "yaml"]), default="tree", show_default=True,
+              help="Output format.")
+@click.option("--out", "out_path", type=click.Path(dir_okay=False), default=None,
+              help="If set, write to file instead of stdout.")
 @click.option("--status", is_flag=True, help="Annotate nodes with check status (existing/missing/conflict/planned).")
 @click.option("--portable",
-              type=click.Choice(["auto","windows","posix","mac","all","none"]),
+              type=click.Choice(["auto", "windows", "posix", "mac", "all", "none"]),
               default="auto", show_default=True,
               help="Name portability rules (same as `check`).")
-@click.option("--max-path-len", default=240, show_default=True, type=int, help="Max path length warning (same as `check`).")
+@click.option("--max-path-len", default=240, show_default=True, type=int,
+              help="Max path length warning (same as `check`).")
 @click.option("--follow-symlinks/--no-follow-symlinks", default=False, show_default=True)
 def tree(template_path, vars_path, base_dir, relative, depth, show_files, sort, fmt, out_path,
          status, portable, max_path_len, follow_symlinks):
@@ -245,7 +280,6 @@ def tree(template_path, vars_path, base_dir, relative, depth, show_files, sort, 
         click.echo(text)
 
 
-
 def _render_ascii_tree(tree: dict, *, max_depth: int | None = None, colorize: bool = False) -> str:
     def color_name(name: str, status: str | None):
         if not colorize or not status:
@@ -260,6 +294,7 @@ def _render_ascii_tree(tree: dict, *, max_depth: int | None = None, colorize: bo
         return name  # planned/no-status
 
     lines: List[str] = []
+
     def rec(n: dict, prefix: str = "", is_last: bool = True, level: int = 0):
         branch = "└─ " if is_last else "├─ "
         raw_label = n.get("name") or "."
@@ -267,7 +302,7 @@ def _render_ascii_tree(tree: dict, *, max_depth: int | None = None, colorize: bo
         label = color_name(raw_label, status)
         suffix = ""
         if colorize and status in ("missing", "conflict"):
-            suffix = " " + click.style(f"[{status}]", fg=("red" if status=="missing" else "yellow"))
+            suffix = " " + click.style(f"[{status}]", fg=("red" if status == "missing" else "yellow"))
         if level == 0:
             lines.append(label + suffix)
         else:
@@ -283,7 +318,6 @@ def _render_ascii_tree(tree: dict, *, max_depth: int | None = None, colorize: bo
 
     rec(tree)
     return "\n".join(lines)
-
 
 
 def _fallback_yaml(obj, indent=0):

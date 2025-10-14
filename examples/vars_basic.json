@@ -1,4 +1,5 @@
 {
   "project_name": "My Project",
-  "episode": 7
+  "episode": 7,
+  "sub_dir": "subdir"
 }
