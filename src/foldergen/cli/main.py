@@ -104,7 +104,8 @@ def build(template_path, vars_path, base_dir, assume_yes, max_expand):
     if not assume_yes:
         total = len(plan.items)
         click.confirm(f"This will create {total} entries. Continue?", abort=True)
-    generator_api.build(template_path, vars_path, base_dir)  # 内部再生成一次也行；如想避免重复可直接 apply_plan(plan)
+    generator_api.build(template_path, base_dir, vars_path)
+    # generator_api.build(template_path=template_path, base_dir=base_dir, vars_path=vars_path)
 
 
 @main.command(help="Check filesystem against template plan and report issues.")
